@@ -1,0 +1,52 @@
+# Runs JobRadar on GitHub's servers every 6 hours, for free.
+# Add your secrets under Settings > Secrets and variables > Actions.
+name: Scheduled job scan
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install .
+
+      # The SQLite DB remembers which jobs were already sent, so you
+      # never get the same alert twice. It is carried between runs via cache.
+      - name: Restore seen-jobs database
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: jobradar-db-${{ github.run_id }}
+          restore-keys: jobradar-db-
+
+      - name: Scan
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: |
+          cp -n config.example.yaml config.yaml
+          # Turn on whichever channel has a secret configured
+          enable() { sed -i "/  $1:/,/enabled/ s/enabled: false/enabled: true/" config.yaml; }
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then enable telegram; fi
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then enable discord; fi
+          if [ -n "$SMTP_USERNAME" ]; then enable email; fi
+          jobradar run
+
+      - name: Save seen-jobs database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: jobradar-db-${{ github.run_id }}
