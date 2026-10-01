@@ -1,0 +1,51 @@
+# JobRadar configuration
+# Secrets are read from environment variables / .env using ${VAR_NAME}.
+
+# Terms sent to sources that support server-side search (Remotive).
+search_terms:
+  - python
+  - django
+
+sources:
+  remotive:
+    enabled: true
+    limit: 100
+    # category: software-dev
+  remoteok:
+    enabled: true
+  arbeitnow:
+    enabled: true
+    max_pages: 3
+
+filters:
+  # A job must contain at least one of these (title, tags or description).
+  keywords: [python, django, fastapi, flask, backend, automation]
+  # Any of these in the title or tags rejects the job.
+  exclude_keywords: [senior staff, principal, php, wordpress]
+  # Leave empty to allow any location. Matched as substrings, e.g. "remote", "uk".
+  locations: []
+  remote_only: false
+  min_salary: null        # e.g. 40000 (annual)
+  max_age_days: 14
+  blocked_companies: []
+  min_score: 20           # 0-100, see README for how scoring works
+
+notifiers:
+  telegram:
+    enabled: false
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: ${TELEGRAM_CHAT_ID}
+  email:
+    enabled: false
+    smtp_host: ${SMTP_HOST:-smtp.gmail.com}
+    smtp_port: ${SMTP_PORT:-587}
+    username: ${SMTP_USERNAME}
+    password: ${SMTP_PASSWORD}
+    to: ${ALERT_EMAIL_TO}
+  discord:
+    enabled: false
+    webhook_url: ${DISCORD_WEBHOOK_URL}
+
+database: data/jobradar.db
+max_alerts_per_run: 25
+interval_minutes: 120

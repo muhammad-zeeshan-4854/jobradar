@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobRadar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='none' stroke='%231F6F8B' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%23E8A33D'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" />
+      <circle cx="20" cy="20" r="10" />
+      <path class="sweep" d="M20 20 L20 3 A17 17 0 0 1 34.7 11.5 Z" />
+      <circle class="blip" cx="27" cy="12" r="2.4" />
+    </svg>
+    <span>JobRadar</span>
+  </a>
+  <div class="scan">
+    <span class="scan-meta" id="scan-meta">
+      {% if stats.last_run %}Last scan {{ stats.last_run.started_at | ago }} · {{ stats.last_run.new_jobs }} new{% else %}No scans yet{% endif %}
+    </span>
+    <button class="btn btn-primary" id="scan-btn" {% if scanning %}disabled{% endif %}>
+      {% if scanning %}Scanning…{% else %}Scan now{% endif %}
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <form method="get" class="filters" id="filters">
+      <input type="hidden" name="status" value="{{ f.status }}">
+      <label class="field">
+        <span>Search</span>
+        <input type="search" name="q" value="{{ f.search }}" placeholder="Title, company or skill">
+      </label>
+      <label class="field">
+        <span>Source</span>
+        <select name="source">
+          <option value="">All sources</option>
+          {% for s in enabled_sources %}
+          <option value="{{ s }}" {% if f.source == s %}selected{% endif %}>{{ source_names.get(s, s) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Sort by</span>
+        <select name="sort">
+          <option value="score" {% if f.sort == 'score' %}selected{% endif %}>Best match</option>
+          <option value="newest" {% if f.sort == 'newest' %}selected{% endif %}>Newest</option>
+          <option value="salary" {% if f.sort == 'salary' %}selected{% endif %}>Highest salary</option>
+        </select>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="remote" value="1" {% if f.remote %}checked{% endif %}>
+        <span>Remote only</span>
+      </label>
+      <button class="btn btn-quiet" type="submit">Apply filters</button>
+    </form>
+
+    <section class="panel">
+      <h2>This week</h2>
+      <p class="big">{{ stats.new_this_week }}<small>new jobs found</small></p>
+      <dl class="sources">
+        {% for name, count in stats.by_source.items() %}
+        <div><dt>{{ source_names.get(name, name) }}</dt><dd>{{ count }}</dd></div>
+        {% endfor %}
+      </dl>
+    </section>
+
+    {% if stats.top_tags %}
+    <section class="panel">
+      <h2>Most requested skills</h2>
+      <div class="tagcloud">
+        {% for tag, count in stats.top_tags %}
+        <a href="?q={{ tag | urlencode }}&status={{ f.status }}">{{ tag }} <span>{{ count }}</span></a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+
+  <section class="content">
+    <nav class="tabs" aria-label="Application status">
+      {% for s in statuses %}
+      <a href="?status={{ s }}{% if f.search %}&q={{ f.search | urlencode }}{% endif %}"
+         class="tab {% if f.status == s %}active{% endif %}" data-status="{{ s }}">
+        {{ s | capitalize }} <span class="count">{{ stats.by_status[s] }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+
+    {% if jobs %}
+    <ol class="jobs">
+      {% for job in jobs %}
+      <li class="job" data-uid="{{ job.uid }}">
+        <div class="score" style="--s: {{ job.score }}" title="Match score">
+          <strong>{{ job.score | round | int }}</strong>
+          <span class="meter"><i></i></span>
+        </div>
+        <div class="body">
+          <h3><a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.title }}</a></h3>
+          <p class="meta">
+            <span class="company">{{ job.company }}</span>
+            <span>{{ job.location }}</span>
+            {% if job | salary %}<span class="salary">{{ job | salary }}</span>{% endif %}
+          </p>
+          <ul class="tags">
+            {% for tag in job.tags[:7] %}
+            <li class="{% if tag in job.matched_keywords %}hit{% endif %}">{{ tag }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="side">
+          <p class="when {% if job.posted_at | fresh %}fresh{% endif %}">
+            {{ (job.posted_at or job.first_seen) | ago }}
+          </p>
+          <p class="via">via {{ source_names.get(job.source, job.source) }}</p>
+          <div class="actions">
+            {% if job.status != 'saved' %}<button class="btn btn-small" data-set="saved">Save</button>{% endif %}
+            {% if job.status != 'applied' %}<button class="btn btn-small" data-set="applied">Mark applied</button>{% endif %}
+            {% if job.status != 'hidden' %}<button class="btn btn-small btn-ghost" data-set="hidden">Hide</button>
+            {% else %}<button class="btn btn-small" data-set="new">Restore</button>{% endif %}
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+
+    {% if pages > 1 %}
+    <nav class="pager">
+      {% if page > 1 %}<a class="btn btn-quiet" href="{{ page_url(page - 1) }}">Previous</a>{% endif %}
+      <span>Page {{ page }} of {{ pages }}</span>
+      {% if page < pages %}<a class="btn btn-quiet" href="{{ page_url(page + 1) }}">Next</a>{% endif %}
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <div class="empty">
+      {% if stats.total == 0 %}
+      <h3>No jobs yet</h3>
+      <p>Press <b>Scan now</b> to fetch jobs that match your keywords, or run <code>jobradar demo</code> to load sample data.</p>
+      {% elif f.search %}
+      <h3>Nothing matches "{{ f.search }}"</h3>
+      <p>Try a broader term, or check the other tabs.</p>
+      {% else %}
+      <h3>The {{ f.status }} list is empty</h3>
+      <p>Jobs you {{ {'saved':'save','applied':'mark as applied','hidden':'hide','new':'haven\'t sorted yet'}[f.status] }} will show up here.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const toast = (msg) => {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+};
+const labels = {saved: "Saved", applied: "Marked as applied", hidden: "Hidden", new: "Restored"};
+
+document.querySelectorAll(".job [data-set]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const row = btn.closest(".job");
+    const status = btn.dataset.set;
+    const res = await fetch(`/api/jobs/${row.dataset.uid}/status`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({status}),
+    });
+    if (!res.ok) { toast("Couldn't update this job. Reload and try again."); return; }
+    const data = await res.json();
+    row.classList.add("leaving");
+    row.addEventListener("transitionend", () => row.remove(), {once: true});
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.querySelector(".count").textContent = data.counts[tab.dataset.status];
+    });
+    toast(labels[status]);
+  });
+});
+
+const scanBtn = document.getElementById("scan-btn");
+scanBtn.addEventListener("click", async () => {
+  scanBtn.disabled = true; scanBtn.textContent = "Scanning…";
+  const res = await fetch("/api/scan", {method: "POST"});
+  if (res.status === 409) toast("A scan is already running.");
+  const poll = setInterval(async () => {
+    const s = await (await fetch("/api/stats")).json();
+    if (!s.scanning) { clearInterval(poll); location.reload(); }
+  }, 2000);
+});
+
+document.querySelectorAll("#filters select, #filters input[type=checkbox]").forEach(el =>
+  el.addEventListener("change", () => el.form.submit()));
+</script>
+</body>
+</html>
